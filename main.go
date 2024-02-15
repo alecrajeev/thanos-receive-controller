@@ -553,6 +553,8 @@ func (c *controller) sync(ctx context.Context) {
 		return
 	}
 
+	level.Info(c.logger).Log("msg", "hashring config "+hashrings[0].Hashring+" + "+hashrings[0].Tenants[0]+" - "+hashrings[0].Endpoints[0])
+
 	statefulsets := make(map[string]*appsv1.StatefulSet)
 
 	for _, obj := range c.ssetInf.GetStore().List() {
@@ -561,9 +563,14 @@ func (c *controller) sync(ctx context.Context) {
 			level.Error(c.logger).Log("msg", "failed type assertion from expected StatefulSet")
 		}
 
+		level.Info(c.logger).Log("msg", "cycle sts "+sts.Name)
+
 		hashring, ok := sts.Labels[hashringLabelKey]
 		if !ok {
+			level.Info(c.logger).Log("msg", "skip "+sts.Name)
 			continue
+		} else {
+			level.Info(c.logger).Log("msg", "select "+sts.Name)
 		}
 
 		// If there's an increase in replicas we poll for the new replicas to be ready
