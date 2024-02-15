@@ -553,7 +553,7 @@ func (c *controller) sync(ctx context.Context) {
 		return
 	}
 
-	level.Info(c.logger).Log("msg", "hashring config "+hashrings[0].Hashring+" + "+hashrings[0].Tenants[0]+" - "+hashrings[0].Endpoints[0])
+	level.Info(c.logger).Log("msg", "hashring config "+hashrings[0].Hashring+" + "+hashrings[0].Tenants[0]+" - ")
 
 	statefulsets := make(map[string]*appsv1.StatefulSet)
 
