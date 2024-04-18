@@ -626,6 +626,7 @@ func (c controller) waitForPod(ctx context.Context, name string) error {
 						if checkPodIsNonTerminating(pod) {
 							return true, nil
 						}
+						level.Warn(c.logger).Log("msg", "pod was terminating, so it was not included in the hashgring", "pod", pod.Name)
 						return false, nil
 					}
 					return true, nil
