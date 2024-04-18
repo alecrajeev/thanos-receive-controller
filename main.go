@@ -59,22 +59,23 @@ const (
 )
 
 type CmdConfig struct {
-	KubeConfig             string
-	Namespace              string
-	StatefulSetLabel       string
-	Label                  string
-	ClusterDomain          string
-	ConfigMapName          string
-	ConfigMapGeneratedName string
-	FileName               string
-	Port                   int
-	Scheme                 string
-	InternalAddr           string
-	AllowOnlyReadyReplicas bool
-	AllowDynamicScaling    bool
-	AnnotatePodsOnChange   bool
-	AnnotatePodsLabel      string
-	ScaleTimeout           time.Duration
+	KubeConfig              string
+	Namespace               string
+	StatefulSetLabel        string
+	Label                   string
+	ClusterDomain           string
+	ConfigMapName           string
+	ConfigMapGeneratedName  string
+	FileName                string
+	Port                    int
+	Scheme                  string
+	InternalAddr            string
+	AllowOnlyNonTerminating bool
+	AllowOnlyReadyReplicas  bool
+	AllowDynamicScaling     bool
+	AnnotatePodsOnChange    bool
+	AnnotatePodsLabel       string
+	ScaleTimeout            time.Duration
 }
 
 func parseFlags() CmdConfig {
@@ -92,6 +93,7 @@ func parseFlags() CmdConfig {
 	flag.StringVar(&config.Scheme, "scheme", "http", "The URL scheme on which receive components accept write requests")
 	flag.StringVar(&config.InternalAddr, "internal-addr", ":8080", "The address on which internal server runs")
 	flag.BoolVar(&config.AllowOnlyReadyReplicas, "allow-only-ready-replicas", false, "Populate only Ready receiver replicas in the hashring configuration")
+	flag.BoolVar(&config.AllowOnlyNonTerminating, "allow-only-non-terminating", false, "Populate only non-terminating receiver replicas in the hashring configuration")
 	flag.BoolVar(&config.AllowDynamicScaling, "allow-dynamic-scaling", false, "Update the hashring configuration on scale down events.")
 	flag.BoolVar(&config.AnnotatePodsOnChange, "annotate-pods-on-change", false, "Annotates pods with current timestamp on a hashring change")
 	flag.StringVar(&config.AnnotatePodsLabel, "annotate-pods-label", "", "The label pods must have to be annotated with current timestamp by the controller on a hashring change.")
@@ -143,20 +145,21 @@ func main() {
 	}
 	{
 		opt := &options{
-			clusterDomain:          config.ClusterDomain,
-			configMapName:          config.ConfigMapName,
-			configMapGeneratedName: config.ConfigMapGeneratedName,
-			fileName:               config.FileName,
-			namespace:              config.Namespace,
-			port:                   config.Port,
-			scheme:                 config.Scheme,
-			labelKey:               labelKey,
-			labelValue:             labelValue,
-			allowOnlyReadyReplicas: config.AllowOnlyReadyReplicas,
-			annotatePodsOnChange:   config.AnnotatePodsOnChange,
-			annotatePodsLabel:      config.AnnotatePodsLabel,
-			allowDynamicScaling:    config.AllowDynamicScaling,
-			scaleTimeout:           config.ScaleTimeout,
+			clusterDomain:           config.ClusterDomain,
+			configMapName:           config.ConfigMapName,
+			configMapGeneratedName:  config.ConfigMapGeneratedName,
+			fileName:                config.FileName,
+			namespace:               config.Namespace,
+			port:                    config.Port,
+			scheme:                  config.Scheme,
+			labelKey:                labelKey,
+			labelValue:              labelValue,
+			allowOnlyNonTerminating: config.AllowOnlyNonTerminating,
+			allowOnlyReadyReplicas:  config.AllowOnlyReadyReplicas,
+			annotatePodsOnChange:    config.AnnotatePodsOnChange,
+			annotatePodsLabel:       config.AnnotatePodsLabel,
+			allowDynamicScaling:     config.AllowDynamicScaling,
+			scaleTimeout:            config.ScaleTimeout,
 		}
 		c := newController(klient, logger, opt)
 		c.registerMetrics(reg)
@@ -328,20 +331,21 @@ func (p prometheusReflectorMetrics) NewLastResourceVersionMetric(name string) ca
 }
 
 type options struct {
-	clusterDomain          string
-	configMapName          string
-	configMapGeneratedName string
-	fileName               string
-	namespace              string
-	port                   int
-	scheme                 string
-	labelKey               string
-	labelValue             string
-	allowOnlyReadyReplicas bool
-	allowDynamicScaling    bool
-	annotatePodsOnChange   bool
-	annotatePodsLabel      string
-	scaleTimeout           time.Duration
+	clusterDomain           string
+	configMapName           string
+	configMapGeneratedName  string
+	fileName                string
+	namespace               string
+	port                    int
+	scheme                  string
+	labelKey                string
+	labelValue              string
+	allowOnlyNonTerminating bool
+	allowOnlyReadyReplicas  bool
+	allowDynamicScaling     bool
+	annotatePodsOnChange    bool
+	annotatePodsLabel       string
+	scaleTimeout            time.Duration
 }
 
 type controller struct {
@@ -618,6 +622,12 @@ func (c controller) waitForPod(ctx context.Context, name string) error {
 		case corev1.PodRunning:
 			if c.options.allowOnlyReadyReplicas {
 				if podutils.IsPodReady(pod) {
+					if c.options.allowOnlyNonTerminating {
+						if checkPodIsNonTerminating(pod) {
+							return true, nil
+						}
+						return false, nil
+					}
 					return true, nil
 				}
 				return false, nil
@@ -836,4 +846,10 @@ func (q *queue) get() bool {
 	defer q.Unlock()
 
 	return q.ok
+}
+
+// checkPodIsNonTerminating returns true if the pod is non-terminating. It returns
+// false if the pod is currently terminating.
+func checkPodIsNonTerminating(pod *corev1.Pod) bool {
+	return pod.DeletionTimestamp == nil
 }
