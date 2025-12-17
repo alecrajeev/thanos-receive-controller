@@ -27,6 +27,7 @@ import (
 	"golang.org/x/exp/maps"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -479,16 +480,31 @@ func (c *controller) run(ctx context.Context, stop <-chan struct{}) error {
 	}
 
 	_, err := c.cmapInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(_ interface{}) {
-			level.Info(c.logger).Log("msg", "ConfigMap added", "event", "add")
+		AddFunc: func(obj interface{}) {
+			cm, ok := obj.(*v1.ConfigMap)
+			if ok {
+				level.Info(c.logger).Log("msg", "ConfigMap added", "event", "add", "configmap", cm.Name)
+			} else {
+				level.Info(c.logger).Log("msg", "ConfigMap added", "event", "add")
+			}
 			c.queue.add()
 		},
-		DeleteFunc: func(_ interface{}) {
-			level.Info(c.logger).Log("msg", "ConfigMap deleted", "event", "delete")
+		DeleteFunc: func(obj interface{}) {
+			cm, ok := obj.(*v1.ConfigMap)
+			if ok {
+				level.Info(c.logger).Log("msg", "ConfigMap deleted", "event", "delete", "configmap", cm.Name)
+			} else {
+				level.Info(c.logger).Log("msg", "ConfigMap deleted", "event", "delete")
+			}
 			c.queue.add()
 		},
-		UpdateFunc: func(_, _ interface{}) {
-			level.Info(c.logger).Log("msg", "ConfigMap updated", "event", "update")
+		UpdateFunc: func(_, obj interface{}) {
+			cm, ok := obj.(*v1.ConfigMap)
+			if ok {
+				level.Info(c.logger).Log("msg", "ConfigMap updated", "event", "update", "configmap", cm.Name)
+			} else {
+				level.Info(c.logger).Log("msg", "ConfigMap updated", "event", "update")
+			}
 			c.queue.add()
 		},
 	})
@@ -497,16 +513,31 @@ func (c *controller) run(ctx context.Context, stop <-chan struct{}) error {
 	}
 
 	_, err = c.ssetInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(_ interface{}) {
-			level.Info(c.logger).Log("msg", "statefulset added", "event", "add")
+		AddFunc: func(obj interface{}) {
+			cm, ok := obj.(*v1.ConfigMap)
+			if ok {
+				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add", "statefulset", cm.Name)
+			} else {
+				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add")
+			}
 			c.queue.add()
 		},
-		DeleteFunc: func(_ interface{}) {
-			level.Info(c.logger).Log("msg", "statefulset deleted", "event", "delete")
+		DeleteFunc: func(obj interface{}) {
+			cm, ok := obj.(*v1.ConfigMap)
+			if ok {
+				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add", "statefulset", cm.Name)
+			} else {
+				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add")
+			}
 			c.queue.add()
 		},
-		UpdateFunc: func(_, _ interface{}) {
-			level.Info(c.logger).Log("msg", "statefulset updated", "event", "update")
+		UpdateFunc: func(_, obj interface{}) {
+			cm, ok := obj.(*v1.ConfigMap)
+			if ok {
+				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add", "statefulset", cm.Name)
+			} else {
+				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add")
+			}
 			c.queue.add()
 		},
 	})
