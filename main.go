@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/thanos-io/thanos/pkg/receive"
+	"golang.org/x/exp/maps"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -59,23 +60,24 @@ const (
 )
 
 type CmdConfig struct {
-	KubeConfig             string
-	Namespace              string
-	StatefulSetLabel       string
-	Label                  string
-	ClusterDomain          string
-	ConfigMapName          string
-	ConfigMapGeneratedName string
-	FileName               string
-	Port                   int
-	Scheme                 string
-	InternalAddr           string
-	AllowOnlyReadyReplicas bool
-	AllowDynamicScaling    bool
-	AnnotatePodsOnChange   bool
-	ScaleTimeout           time.Duration
-	useAzAwareHashRing     bool
-	podAzAnnotationKey     string
+	KubeConfig                 string
+	Namespace                  string
+	StatefulSetLabel           string
+	Label                      string
+	ClusterDomain              string
+	ConfigMapName              string
+	ConfigMapGeneratedName     string
+	FileName                   string
+	Port                       int
+	Scheme                     string
+	InternalAddr               string
+	AllowOnlyReadyReplicas     bool
+	AllowDynamicScaling        bool
+	AnnotatePodsOnChange       bool
+	ScaleTimeout               time.Duration
+	useAzAwareHashRing         bool
+	podAzAnnotationKey         string
+	uniqueStatefulSetPodLabels bool
 }
 
 func parseFlags() CmdConfig {
@@ -98,6 +100,7 @@ func parseFlags() CmdConfig {
 	flag.DurationVar(&config.ScaleTimeout, "scale-timeout", defaultScaleTimeout, "A timeout to wait for receivers to really start after they report healthy")
 	flag.BoolVar(&config.useAzAwareHashRing, "use-az-aware-hashring", false, "A boolean to use az aware hashring to comply with Thanos v0.32+")
 	flag.StringVar(&config.podAzAnnotationKey, "pod-az-annotation-key", "", "pod annotation key for AZ Info, If not specified or key not found, will use sts name as AZ key")
+	flag.BoolVar(&config.uniqueStatefulSetPodLabels, "unique-statefulset-pod-labels", false, "Get list of pods in statefulset using pod spec labels")
 	flag.Parse()
 
 	return config
@@ -145,21 +148,22 @@ func main() {
 	}
 	{
 		opt := &options{
-			clusterDomain:          config.ClusterDomain,
-			configMapName:          config.ConfigMapName,
-			configMapGeneratedName: config.ConfigMapGeneratedName,
-			fileName:               config.FileName,
-			namespace:              config.Namespace,
-			port:                   config.Port,
-			scheme:                 config.Scheme,
-			labelKey:               labelKey,
-			labelValue:             labelValue,
-			allowOnlyReadyReplicas: config.AllowOnlyReadyReplicas,
-			annotatePodsOnChange:   config.AnnotatePodsOnChange,
-			allowDynamicScaling:    config.AllowDynamicScaling,
-			scaleTimeout:           config.ScaleTimeout,
-			useAzAwareHashRing:     config.useAzAwareHashRing,
-			podAzAnnotationKey:     config.podAzAnnotationKey,
+			clusterDomain:              config.ClusterDomain,
+			configMapName:              config.ConfigMapName,
+			configMapGeneratedName:     config.ConfigMapGeneratedName,
+			fileName:                   config.FileName,
+			namespace:                  config.Namespace,
+			port:                       config.Port,
+			scheme:                     config.Scheme,
+			labelKey:                   labelKey,
+			labelValue:                 labelValue,
+			allowOnlyReadyReplicas:     config.AllowOnlyReadyReplicas,
+			annotatePodsOnChange:       config.AnnotatePodsOnChange,
+			allowDynamicScaling:        config.AllowDynamicScaling,
+			scaleTimeout:               config.ScaleTimeout,
+			useAzAwareHashRing:         config.useAzAwareHashRing,
+			podAzAnnotationKey:         config.podAzAnnotationKey,
+			uniqueStatefulSetPodLabels: config.uniqueStatefulSetPodLabels,
 		}
 		c := newController(klient, logger, opt)
 		c.registerMetrics(reg)
@@ -331,21 +335,22 @@ func (p prometheusReflectorMetrics) NewLastResourceVersionMetric(_ string) cache
 }
 
 type options struct {
-	clusterDomain          string
-	configMapName          string
-	configMapGeneratedName string
-	fileName               string
-	namespace              string
-	port                   int
-	scheme                 string
-	labelKey               string
-	labelValue             string
-	allowOnlyReadyReplicas bool
-	allowDynamicScaling    bool
-	annotatePodsOnChange   bool
-	scaleTimeout           time.Duration
-	useAzAwareHashRing     bool
-	podAzAnnotationKey     string
+	clusterDomain              string
+	configMapName              string
+	configMapGeneratedName     string
+	fileName                   string
+	namespace                  string
+	port                       int
+	scheme                     string
+	labelKey                   string
+	labelValue                 string
+	allowOnlyReadyReplicas     bool
+	allowDynamicScaling        bool
+	annotatePodsOnChange       bool
+	scaleTimeout               time.Duration
+	useAzAwareHashRing         bool
+	podAzAnnotationKey         string
+	uniqueStatefulSetPodLabels bool
 }
 
 type controller struct {
@@ -656,31 +661,77 @@ func (c *controller) populate(ctx context.Context, hashrings []receive.HashringC
 		var endpoints []receive.Endpoint
 
 		for _, sts := range stsList {
-			for i := 0; i < int(*sts.Spec.Replicas); i++ {
-				podName := fmt.Sprintf("%s-%d", sts.Name, i)
-				pod, err := c.klient.CoreV1().Pods(c.options.namespace).Get(ctx, podName, metav1.GetOptions{})
 
-				if c.options.allowDynamicScaling {
-					if kerrors.IsNotFound(err) {
-						continue
-					}
-					// Do not add a replica to the hashring if pod is not Ready.
-					if !podutils.IsPodReady(pod) {
-						level.Warn(c.logger).Log("msg", "failed adding pod to hashring, pod not ready", "pod", podName, "err", err)
-						continue
-					}
+			if c.options.uniqueStatefulSetPodLabels {
 
-					if pod.ObjectMeta.DeletionTimestamp != nil && (pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodPending) {
-						// Pod is terminating, do not add it to the hashring.
-						continue
+				podLabels := sts.Spec.Template.Labels
+				var podLabelsSelector string
+
+				for j, podLabelKey := range maps.Keys(podLabels) {
+					if j == 0 {
+						podLabelsSelector += podLabelKey + "=" + podLabels[podLabelKey]
+					} else {
+						podLabelsSelector += "," + podLabelKey + "=" + podLabels[podLabelKey]
 					}
 				}
-				// If cluster domain is empty string we don't want dot after svc.
 
-				endpoint := *c.populateEndpoint(sts, i, err, pod)
-				endpoints = append(endpoints, endpoint)
+				podsInStatefulset, err := c.klient.CoreV1().Pods(c.options.namespace).List(ctx, metav1.ListOptions{
+					LabelSelector: podLabelsSelector,
+				})
+				if err != nil {
+					level.Error(c.logger).Log("msg", "failed to list pods belonging to statefulset", "statefulset", sts.Name, "err", err)
+				}
 
-				level.Info(c.logger).Log("msg", "Hashring got an endpoint", "hashring", h.Hashring, "endpoint:", endpoint.Address, "AZ", endpoint.AZ)
+				for _, pod := range podsInStatefulset.Items {
+					if c.options.allowDynamicScaling {
+						if kerrors.IsNotFound(err) {
+							continue
+						}
+						// Do not add a replica to the hashring if pod is not Ready.
+						if !podutils.IsPodReady(&pod) {
+							level.Warn(c.logger).Log("msg", "failed adding pod to hashring, pod not ready", "pod", pod.Name)
+							continue
+						}
+
+						if pod.ObjectMeta.DeletionTimestamp != nil && (pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodPending) {
+							// Pod is terminating, do not add it to the hashring.
+							continue
+						}
+					}
+					// If cluster domain is empty string we don't want dot after svc.
+
+					endpoint := *c.populateEndpoint(sts, i, err, &pod)
+					endpoints = append(endpoints, endpoint)
+
+					level.Info(c.logger).Log("msg", "Hashring got an endpoint", "hashring", h.Hashring, "endpoint:", endpoint.Address, "AZ", endpoint.AZ)
+				}
+			} else {
+				for i := 0; i < int(*sts.Spec.Replicas); i++ {
+					podName := fmt.Sprintf("%s-%d", sts.Name, i)
+					pod, err := c.klient.CoreV1().Pods(c.options.namespace).Get(ctx, podName, metav1.GetOptions{})
+
+					if c.options.allowDynamicScaling {
+						if kerrors.IsNotFound(err) {
+							continue
+						}
+						// Do not add a replica to the hashring if pod is not Ready.
+						if !podutils.IsPodReady(pod) {
+							level.Warn(c.logger).Log("msg", "failed adding pod to hashring, pod not ready", "pod", podName, "err", err)
+							continue
+						}
+
+						if pod.ObjectMeta.DeletionTimestamp != nil && (pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodPending) {
+							// Pod is terminating, do not add it to the hashring.
+							continue
+						}
+					}
+					// If cluster domain is empty string we don't want dot after svc.
+
+					endpoint := *c.populateEndpoint(sts, i, err, pod)
+					endpoints = append(endpoints, endpoint)
+
+					level.Info(c.logger).Log("msg", "Hashring got an endpoint", "hashring", h.Hashring, "endpoint:", endpoint.Address, "AZ", endpoint.AZ)
+				}
 			}
 		}
 
