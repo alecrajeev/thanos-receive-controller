@@ -479,18 +479,36 @@ func (c *controller) run(ctx context.Context, stop <-chan struct{}) error {
 	}
 
 	_, err := c.cmapInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(_ interface{}) { c.queue.add() },
-		DeleteFunc: func(_ interface{}) { c.queue.add() },
-		UpdateFunc: func(_, _ interface{}) { c.queue.add() },
+		AddFunc: func(_ interface{}) {
+			level.Info(c.logger).Log("msg", "ConfigMap added", "event", "add")
+			c.queue.add()
+		},
+		DeleteFunc: func(_ interface{}) {
+			level.Info(c.logger).Log("msg", "ConfigMap deleted", "event", "delete")
+			c.queue.add()
+		},
+		UpdateFunc: func(_, _ interface{}) {
+			level.Info(c.logger).Log("msg", "ConfigMap updated", "event", "update")
+			c.queue.add()
+		},
 	})
 	if err != nil {
 		return err
 	}
 
 	_, err = c.ssetInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(_ interface{}) { c.queue.add() },
-		DeleteFunc: func(_ interface{}) { c.queue.add() },
-		UpdateFunc: func(_, _ interface{}) { c.queue.add() },
+		AddFunc: func(_ interface{}) {
+			level.Info(c.logger).Log("msg", "statefulset added", "event", "add")
+			c.queue.add()
+		},
+		DeleteFunc: func(_ interface{}) {
+			level.Info(c.logger).Log("msg", "statefulset deleted", "event", "delete")
+			c.queue.add()
+		},
+		UpdateFunc: func(_, _ interface{}) {
+			level.Info(c.logger).Log("msg", "statefulset updated", "event", "update")
+			c.queue.add()
+		},
 	})
 
 	if err != nil {
