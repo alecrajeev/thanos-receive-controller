@@ -514,7 +514,7 @@ func (c *controller) run(ctx context.Context, stop <-chan struct{}) error {
 
 	_, err = c.ssetInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			cm, ok := obj.(*v1.ConfigMap)
+			cm, ok := obj.(*appsv1.StatefulSet)
 			if ok {
 				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add", "statefulset", cm.Name)
 			} else {
@@ -523,20 +523,20 @@ func (c *controller) run(ctx context.Context, stop <-chan struct{}) error {
 			c.queue.add()
 		},
 		DeleteFunc: func(obj interface{}) {
-			cm, ok := obj.(*v1.ConfigMap)
+			cm, ok := obj.(*appsv1.StatefulSet)
 			if ok {
-				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add", "statefulset", cm.Name)
+				level.Info(c.logger).Log("msg", "StatefulSet deleted", "event", "delete", "statefulset", cm.Name)
 			} else {
-				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add")
+				level.Info(c.logger).Log("msg", "StatefulSet deleted", "event", "delete")
 			}
 			c.queue.add()
 		},
 		UpdateFunc: func(_, obj interface{}) {
-			cm, ok := obj.(*v1.ConfigMap)
+			cm, ok := obj.(*appsv1.StatefulSet)
 			if ok {
-				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add", "statefulset", cm.Name)
+				level.Info(c.logger).Log("msg", "StatefulSet updated", "event", "update", "statefulset", cm.Name)
 			} else {
-				level.Info(c.logger).Log("msg", "StatefulSet added", "event", "add")
+				level.Info(c.logger).Log("msg", "StatefulSet updated", "event", "update")
 			}
 			c.queue.add()
 		},
