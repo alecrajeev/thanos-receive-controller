@@ -45,7 +45,7 @@ type label = string
 const (
 	defaultPort = 10901
 
-	defaultResyncPeriod           = 300
+	defaultResyncPeriod           = 5 * time.Minute
 	resyncPeriod                  = 5 * time.Minute
 	defaultScaleTimeout           = 5 * time.Second
 	internalServerShutdownTimeout = time.Second
@@ -81,7 +81,7 @@ type CmdConfig struct {
 	useAzAwareHashRing         bool
 	podAzAnnotationKey         string
 	uniqueStatefulSetPodLabels bool
-	ResyncPeriod               int
+	ResyncPeriod               time.Duration
 }
 
 func parseFlags() CmdConfig {
@@ -106,7 +106,7 @@ func parseFlags() CmdConfig {
 	flag.BoolVar(&config.useAzAwareHashRing, "use-az-aware-hashring", false, "A boolean to use az aware hashring to comply with Thanos v0.32+")
 	flag.StringVar(&config.podAzAnnotationKey, "pod-az-annotation-key", "", "pod annotation key for AZ Info, If not specified or key not found, will use sts name as AZ key")
 	flag.BoolVar(&config.uniqueStatefulSetPodLabels, "unique-statefulset-pod-labels", false, "Get list of pods in statefulset using pod spec labels")
-	flag.IntVar(&config.ResyncPeriod, "resync-period", defaultResyncPeriod, "The default resync period")
+	flag.DurationVar(&config.ResyncPeriod, "resync-period", defaultResyncPeriod, "The default resync period")
 	flag.Parse()
 
 	return config
@@ -360,7 +360,7 @@ type options struct {
 	useAzAwareHashRing         bool
 	podAzAnnotationKey         string
 	uniqueStatefulSetPodLabels bool
-	resyncPeriod               int
+	resyncPeriod               time.Duration
 }
 
 type controller struct {
@@ -398,8 +398,8 @@ func newController(klient kubernetes.Interface, logger log.Logger, o *options) *
 		replicas: make(map[string]int32),
 
 		klient:  klient,
-		cmapInf: coreinformers.NewConfigMapInformer(klient, o.namespace, time.Duration(o.resyncPeriod)*time.Second, nil),
-		ssetInf: appsinformers.NewFilteredStatefulSetInformer(klient, o.namespace, time.Duration(o.resyncPeriod)*time.Second, nil, func(lo *metav1.ListOptions) {
+		cmapInf: coreinformers.NewConfigMapInformer(klient, o.namespace, o.resyncPeriod, nil),
+		ssetInf: appsinformers.NewFilteredStatefulSetInformer(klient, o.namespace, o.resyncPeriod, nil, func(lo *metav1.ListOptions) {
 			lo.LabelSelector = labels.Set{o.labelKey: o.labelValue}.String()
 		}),
 
