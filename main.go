@@ -748,7 +748,7 @@ func (c *controller) populate(ctx context.Context, hashrings []receive.HashringC
 					level.Error(c.logger).Log("msg", "failed to list pods belonging to statefulset", "statefulset", sts.Name, "err", err)
 				}
 
-				for _, pod := range podsInStatefulset.Items {
+				for k, pod := range podsInStatefulset.Items {
 					if c.options.allowDynamicScaling {
 						if kerrors.IsNotFound(err) {
 							continue
@@ -766,7 +766,7 @@ func (c *controller) populate(ctx context.Context, hashrings []receive.HashringC
 					}
 					// If cluster domain is empty string we don't want dot after svc.
 
-					endpoint := *c.populateEndpoint(sts, i, err, &pod)
+					endpoint := *c.populateEndpoint(sts, k, err, &pod)
 					endpoints = append(endpoints, endpoint)
 
 					level.Info(c.logger).Log("msg", "Hashring got an endpoint", "hashring", h.Hashring, "endpoint:", endpoint.Address, "AZ", endpoint.AZ)
